@@ -1708,77 +1708,61 @@ I'm debugging an Angular application and need help analyzing the following issue
     return text;
   }
 
-  // Save logs to files using File System Access API or downloads
-  async function saveToFiles() {
-    if (!config.saveToFiles) return;
-
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const dateStr = new Date().toISOString().split('T')[0];
-    const sessionShort = state.sessionId.split('-')[1] || 'session';
+  // Helper to save any content to the selected folder
+  async function saveToFolder(filename, content) {
+    if (!state.fileHandle) {
+      originalConsole.warn('%c⚠️ No folder selected! Run: dl.selectFolder()', styles.warning);
+      originalConsole.log('%c💡 This will create/update files in your selected folder', styles.info);
+      return false;
+    }
 
     try {
-      if (supportsFileSystemAccess && state.fileHandle) {
-        // Use File System Access API
-        const jsonData = window.debugLogger.export();
-        const textData = generateTextLog();
+      const fileHandle = await state.fileHandle.getFileHandle(filename, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(content);
+      await writable.close();
 
-        if (config.fileFormat === 'json' || config.fileFormat === 'both') {
-          const jsonFile = await state.fileHandle.getFileHandle(
-            `debug-logs-${dateStr}-${sessionShort}.json`,
-            { create: true }
-          );
-          const writable = await jsonFile.createWritable();
-          await writable.write(JSON.stringify(jsonData, null, 2));
-          await writable.close();
-        }
-
-        if (config.fileFormat === 'text' || config.fileFormat === 'both') {
-          const textFile = await state.fileHandle.getFileHandle(
-            `debug-logs-${dateStr}-${sessionShort}.txt`,
-            { create: true }
-          );
-          const writable = await textFile.createWritable();
-          await writable.write(textData);
-          await writable.close();
-        }
-
-        state.lastFileSave = Date.now();
-        originalConsole.log('%c💾 Logs saved to files', styles.success);
-      } else {
-        // Fallback to automatic downloads
-        if (config.fileFormat === 'json' || config.fileFormat === 'both') {
-          const jsonData = window.debugLogger.export();
-          const blob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `debug-logs-${dateStr}-${sessionShort}.json`;
-          a.style.display = 'none';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-        }
-
-        if (config.fileFormat === 'text' || config.fileFormat === 'both') {
-          const textData = generateTextLog();
-          const blob = new Blob([textData], { type: 'text/plain' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `debug-logs-${dateStr}-${sessionShort}.txt`;
-          a.style.display = 'none';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-        }
-
-        state.lastFileSave = Date.now();
-        originalConsole.log('%c💾 Logs downloaded (File System API not available)', styles.info);
-      }
+      originalConsole.log(`%c✅ Saved: ${filename}`, styles.success);
+      return true;
     } catch (error) {
-      originalConsole.warn('%c⚠️ Failed to save files:', styles.warning, error.message);
+      originalConsole.error(`%c❌ Failed to save ${filename}:`, styles.error, error.message);
+      return false;
+    }
+  }
+
+  // Save logs to files using File System Access API
+  async function saveToFiles() {
+    if (!config.saveToFiles) return;
+    if (!state.fileHandle) {
+      originalConsole.warn('%c⚠️ Auto-save disabled: No folder selected', styles.warning);
+      return;
+    }
+
+    const dateStr = new Date().toISOString().split('T')[0];
+    const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false }).replace(/:/g, '-');
+
+    try {
+      const jsonData = window.debugLogger.export();
+      const textData = generateTextLog();
+
+      // Save with timestamp for continuous logging
+      if (config.fileFormat === 'json' || config.fileFormat === 'both') {
+        await saveToFolder(
+          `${dateStr}-debug-full.json`,
+          JSON.stringify(jsonData, null, 2)
+        );
+      }
+
+      if (config.fileFormat === 'text' || config.fileFormat === 'both') {
+        await saveToFolder(
+          `${dateStr}-debug-full.txt`,
+          textData
+        );
+      }
+
+      state.lastFileSave = Date.now();
+    } catch (error) {
+      originalConsole.warn('%c⚠️ Failed to auto-save:', styles.warning, error.message);
     }
   }
 
@@ -1989,53 +1973,44 @@ I'm debugging an Angular application and need help analyzing the following issue
     },
 
     // Download logs as JSON file
-    download: (filename) => {
+    saveJSON: async (filename) => {
+      const dateStr = new Date().toISOString().split('T')[0];
       const data = window.debugLogger.export();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename || `debug-logs-${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      originalConsole.log('%c💾 Logs downloaded', styles.success);
+      const fname = filename || `${dateStr}-debug-full.json`;
+
+      const saved = await saveToFolder(fname, JSON.stringify(data, null, 2));
+      if (saved) {
+        originalConsole.log('%c📄 Complete debug data saved as JSON', styles.success);
+      }
+      return saved;
     },
 
-    // Download logs as readable text file
-    downloadText: (filename) => {
+    // Save logs as readable text file to folder
+    saveText: async (filename) => {
+      const dateStr = new Date().toISOString().split('T')[0];
       const text = generateTextLog();
-      const blob = new Blob([text], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename || `debug-logs-${new Date().toISOString().split('T')[0]}.txt`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      originalConsole.log('%c💾 Text logs downloaded', styles.success);
+      const fname = filename || `${dateStr}-debug-full.txt`;
+
+      const saved = await saveToFolder(fname, text);
+      if (saved) {
+        originalConsole.log('%c📄 Complete debug data saved as text', styles.success);
+      }
+      return saved;
     },
 
-    // Download Copilot-optimized Markdown file
-    downloadCopilotLog: (filename) => {
+    // Save Copilot-optimized Markdown file to folder
+    saveCopilotLog: async (filename) => {
+      const dateStr = new Date().toISOString().split('T')[0];
       const markdown = generateCopilotMarkdown();
-      const blob = new Blob([markdown], { type: 'text/markdown' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename || `debug-copilot-${new Date().toISOString().split('T')[0]}.md`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      originalConsole.log('%c🤖 Copilot-optimized log downloaded!', styles.success);
-      originalConsole.log('%c📝 This file is optimized for VS Code Copilot to read and analyze', styles.info);
-      originalConsole.log('%c   1. Save to your project folder (e.g., ./debugger/)', styles.info);
-      originalConsole.log('%c   2. Open in VS Code', styles.info);
-      originalConsole.log('%c   3. Ask Copilot: "Read this file and create a JIRA ticket"', styles.info);
-      return 'Copilot log downloaded';
+      const fname = filename || `${dateStr}-copilot-analysis.md`;
+
+      const saved = await saveToFolder(fname, markdown);
+      if (saved) {
+        originalConsole.log('%c🤖 Copilot-optimized analysis saved!', styles.success);
+        originalConsole.log('%c📝 File ready for VS Code Copilot', styles.info);
+        originalConsole.log(`%c   Ask Copilot: "Read ${fname} and analyze the errors"`, styles.info);
+      }
+      return saved;
     },
 
     // Save Copilot log to console for copy/paste
@@ -2059,13 +2034,12 @@ I'm debugging an Angular application and need help analyzing the following issue
       sendToBackend();
     },
 
-    // Select directory for file saving (File System Access API)
-    selectDirectory: async () => {
+    // Select folder for saving all debug files (File System Access API)
+    selectFolder: async () => {
       if (!supportsFileSystemAccess) {
         originalConsole.warn('%c⚠️ File System Access API not supported in this browser', styles.warning);
-        originalConsole.log('File saving will use automatic downloads instead');
-        config.saveToFiles = true;
-        return 'File saving enabled (using downloads)';
+        originalConsole.log('%c💡 Use Chrome or Edge for folder saving feature', styles.info);
+        return 'Browser not supported - use Chrome or Edge';
       }
 
       try {
@@ -2074,20 +2048,23 @@ I'm debugging an Angular application and need help analyzing the following issue
           startIn: 'desktop'
         });
         config.saveToFiles = true;
-        originalConsole.log('%c✅ Directory selected for file saving', styles.success);
-        originalConsole.log('Files will be saved to the selected directory');
-        
-        // Save immediately
-        await saveToFiles();
-        
-        return 'Directory selected and first save completed';
+        originalConsole.log('%c✅ Folder selected successfully!', styles.success);
+        originalConsole.log('%c📁 All debug files will be saved to this folder', styles.info);
+        originalConsole.log('%c   - Auto-saves every 30 seconds (if enabled)', styles.info);
+        originalConsole.log('%c   - JIRA tickets, AI analysis, Copilot logs', styles.info);
+        originalConsole.log('%c   - Complete debug data (JSON + Text)', styles.info);
+
+        // Save initial files
+        await window.debugLogger.saveAIPackage();
+
+        return 'Folder selected and initial package saved!';
       } catch (error) {
         if (error.name === 'AbortError') {
-          originalConsole.log('Directory selection cancelled');
-          return 'Directory selection cancelled';
+          originalConsole.log('Folder selection cancelled');
+          return 'Folder selection cancelled';
         }
-        originalConsole.error('Failed to select directory:', error);
-        return 'Failed to select directory: ' + error.message;
+        originalConsole.error('Failed to select folder:', error);
+        return 'Failed to select folder: ' + error.message;
       }
     },
 
@@ -2331,37 +2308,21 @@ I'm debugging an Angular application and need help analyzing the following issue
     },
 
     // Generate Jira ticket content
-    jira: () => {
+    saveJiraTicket: async (filename) => {
+      const dateStr = new Date().toISOString().split('T')[0];
       const jiraContent = generateJiraTicket();
+      const fname = filename || `${dateStr}-jira-ticket.txt`;
 
-      // Copy to clipboard
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(jiraContent).then(() => {
-          originalConsole.log('%c✅ Jira ticket content copied to clipboard!', styles.success);
-          originalConsole.log('%c📋 Paste it into your Jira ticket description', styles.info);
-          originalConsole.log('\n' + '='.repeat(80));
-          originalConsole.log(jiraContent);
-          originalConsole.log('='.repeat(80));
-        }).catch(err => {
-          originalConsole.warn('Failed to copy to clipboard:', err);
-          // Fallback: show in console
-          originalConsole.log('\n' + '='.repeat(80));
-          originalConsole.log('JIRA TICKET CONTENT (copy manually):');
-          originalConsole.log('='.repeat(80));
-          originalConsole.log(jiraContent);
-          originalConsole.log('='.repeat(80));
-        });
-      } else {
-        // Fallback: show in console and prompt
+      const saved = await saveToFolder(fname, jiraContent);
+      if (saved) {
+        originalConsole.log('%c🎫 JIRA ticket saved to folder!', styles.success);
+        originalConsole.log('%c📋 Open the file and copy/paste into JIRA', styles.info);
         originalConsole.log('\n' + '='.repeat(80));
-        originalConsole.log('JIRA TICKET CONTENT:');
+        originalConsole.log(jiraContent.substring(0, 500) + '...');
         originalConsole.log('='.repeat(80));
-        originalConsole.log(jiraContent);
-        originalConsole.log('='.repeat(80));
-        alert('Jira content logged to console. Please copy it manually.');
       }
 
-      return jiraContent;
+      return saved;
     },
 
     // Generate AI-friendly prompt for GitHub Copilot, ChatGPT, Claude, etc.
@@ -2398,50 +2359,109 @@ I'm debugging an Angular application and need help analyzing the following issue
       return promptContent;
     },
 
-    // Download AI-friendly package (prompt + full logs)
-    downloadAIPackage: () => {
+    // Save complete AI analysis package to folder
+    saveAIPackage: async () => {
+      const dateStr = new Date().toISOString().split('T')[0];
       const promptContent = generateAIPrompt();
+      const copilotMarkdown = generateCopilotMarkdown();
       const fullLogs = window.debugLogger.export();
       const textLogs = generateTextLog();
       const domSnapshot = captureDOMSnapshot();
 
-      const aiPackage = {
-        generatedAt: new Date().toISOString(),
-        sessionId: state.sessionId,
-        prompt: promptContent,
-        domSnapshot: domSnapshot,
-        fullData: fullLogs,
-        textLogs: textLogs,
-        instructions: {
-          usage: 'Copy the "prompt" field and paste it into your AI assistant (GitHub Copilot, ChatGPT, Claude, etc.)',
-          includeFiles: 'If the AI asks for specific files mentioned in errors, provide them from your codebase',
-          context: 'The "fullData" and "domSnapshot" fields provide additional context if needed'
-        }
-      };
+      let allSaved = true;
 
-      const blob = new Blob([JSON.stringify(aiPackage, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `ai-debug-package-${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      // Save AI prompt as Markdown
+      allSaved = await saveToFolder(
+        `${dateStr}-ai-prompt.md`,
+        promptContent
+      ) && allSaved;
 
-      originalConsole.log('%c✅ AI debug package downloaded!', styles.success);
-      originalConsole.log('%c📦 This package contains:', styles.info);
-      originalConsole.log('   - AI-ready prompt with all errors and context');
-      originalConsole.log('   - Complete debug logs in JSON format');
-      originalConsole.log('   - Text logs for easy reading');
-      originalConsole.log('   - DOM snapshot of current state');
-      originalConsole.log('\n%c💡 Quick Start:', styles.info);
-      originalConsole.log('   1. Open the downloaded JSON file');
-      originalConsole.log('   2. Copy the "prompt" field');
-      originalConsole.log('   3. Paste into GitHub Copilot, ChatGPT, or Claude');
-      originalConsole.log('   4. Follow the AI recommendations!');
+      // Save Copilot-optimized analysis
+      allSaved = await saveToFolder(
+        `${dateStr}-copilot-analysis.md`,
+        copilotMarkdown
+      ) && allSaved;
 
-      return 'AI debug package downloaded successfully';
+      // Save full logs as JSON
+      allSaved = await saveToFolder(
+        `${dateStr}-debug-full.json`,
+        JSON.stringify(fullLogs, null, 2)
+      ) && allSaved;
+
+      // Save text logs
+      allSaved = await saveToFolder(
+        `${dateStr}-debug-full.txt`,
+        textLogs
+      ) && allSaved;
+
+      // Save DOM snapshot
+      allSaved = await saveToFolder(
+        `${dateStr}-dom-snapshot.json`,
+        JSON.stringify(domSnapshot, null, 2)
+      ) && allSaved;
+
+      // Save README with instructions
+      const readme = `# Debug Analysis Package - ${dateStr}
+
+This folder contains a complete debug analysis package for your Angular application.
+
+## Files Included
+
+1. **${dateStr}-ai-prompt.md** - Ready-to-use prompt for ChatGPT, Claude, etc.
+2. **${dateStr}-copilot-analysis.md** - Optimized for VS Code Copilot
+3. **${dateStr}-jira-ticket.txt** - JIRA ticket (if generated)
+4. **${dateStr}-debug-full.json** - Complete debug data (all requests, errors, logs)
+5. **${dateStr}-debug-full.txt** - Human-readable debug logs
+6. **${dateStr}-dom-snapshot.json** - DOM state snapshot
+
+## Quick Start
+
+### Option 1: VS Code Copilot
+1. Open this folder in VS Code
+2. Open ${dateStr}-copilot-analysis.md
+3. Ask Copilot: "@workspace Read this file and analyze the errors"
+
+### Option 2: ChatGPT / Claude
+1. Open ${dateStr}-ai-prompt.md
+2. Copy the entire content
+3. Paste into ChatGPT or Claude
+4. Get specific fixes with file names and line numbers
+
+### Option 3: Create JIRA Ticket
+1. Open ${dateStr}-jira-ticket.txt (if available)
+2. Copy the content
+3. Paste into your JIRA ticket description
+
+## Session Info
+- **Session ID**: ${state.sessionId}
+- **Generated**: ${new Date().toISOString()}
+- **URL**: ${window.location.href}
+- **Angular Version**: ${document.querySelector('[ng-version]')?.getAttribute('ng-version') || 'Unknown'}
+
+---
+Generated by Debug Logger Enhanced for Angular
+`;
+
+      allSaved = await saveToFolder(
+        `README.md`,
+        readme
+      ) && allSaved;
+
+      if (allSaved) {
+        originalConsole.log('%c✅ Complete AI package saved to folder!', styles.success);
+        originalConsole.log('%c📦 Package contains:', styles.info);
+        originalConsole.log('   ✓ AI-ready prompt (Markdown)');
+        originalConsole.log('   ✓ Copilot-optimized analysis (Markdown)');
+        originalConsole.log('   ✓ Complete debug logs (JSON + Text)');
+        originalConsole.log('   ✓ DOM snapshot (JSON)');
+        originalConsole.log('   ✓ README with instructions');
+        originalConsole.log('\n%c💡 Next Steps:', styles.info);
+        originalConsole.log('   1. Open folder in VS Code');
+        originalConsole.log('   2. Read README.md for instructions');
+        originalConsole.log('   3. Use Copilot to analyze the files');
+      }
+
+      return allSaved;
     },
 
     // Capture and show current DOM snapshot
@@ -2625,33 +2645,25 @@ I'm debugging an Angular application and need help analyzing the following issue
     aiTitle.style.cssText = 'font-weight: bold; margin-bottom: 4px; color: #FF6B6B;';
     aiTitle.textContent = '🤖 AI Analysis:';
     aiSection.appendChild(aiTitle);
-    const aiPromptBtn = createBtn('🤖 Copy AI Prompt', function() {
-      window.debugLogger.aiPrompt();
-      const originalText = this.textContent;
-      this.textContent = '✅ Copied!';
-      setTimeout(() => this.textContent = originalText, 2000);
-    }, '#FF6B6B');
-    aiSection.appendChild(aiPromptBtn);
-    aiSection.appendChild(createBtn('📝 Copilot Log (VS Code)', () => window.debugLogger.downloadCopilotLog(), '#0078D4'));
-    aiSection.appendChild(createBtn('📦 Download AI Package', () => window.debugLogger.downloadAIPackage(), '#FF6B6B'));
+    aiSection.appendChild(createBtn('📦 Save AI Package', async () => {
+      await window.debugLogger.saveAIPackage();
+    }, '#FF6B6B'));
+    aiSection.appendChild(createBtn('📝 Save Copilot Log', async () => {
+      await window.debugLogger.saveCopilotLog();
+    }, '#0078D4'));
+    aiSection.appendChild(createBtn('🎫 Save JIRA Ticket', async () => {
+      await window.debugLogger.saveJiraTicket();
+    }, '#0052CC'));
     aiSection.appendChild(createBtn('⚛️ Angular Info', () => window.debugLogger.showAngularInfo(), '#DD0031'));
     content.appendChild(aiSection);
 
     // Save section
     const saveSection = document.createElement('div');
     saveSection.style.cssText = 'margin-top: 12px; padding-top: 12px; border-top: 1px solid #ddd;';
-    saveSection.appendChild(document.createTextNode('Save/Export:'));
-    saveSection.appendChild(createBtn('💾 Download Text', () => window.debugLogger.downloadText(), '#4CAF50'));
-    saveSection.appendChild(createBtn('💾 Download JSON', () => window.debugLogger.download(), '#4CAF50'));
-    saveSection.appendChild(createBtn('📁 Select Folder', () => window.debugLogger.selectDirectory(), '#FF9800'));
-    const jiraBtn = createBtn('🎫 Copy Jira Ticket', function() {
-      window.debugLogger.jira();
-      // Show feedback
-      const originalText = this.textContent;
-      this.textContent = '✅ Copied!';
-      setTimeout(() => this.textContent = originalText, 2000);
-    }, '#0052CC');
-    saveSection.appendChild(jiraBtn);
+    saveSection.appendChild(document.createTextNode('Save Data:'));
+    saveSection.appendChild(createBtn('💾 Save Text', async () => await window.debugLogger.saveText(), '#4CAF50'));
+    saveSection.appendChild(createBtn('💾 Save JSON', async () => await window.debugLogger.saveJSON(), '#4CAF50'));
+    saveSection.appendChild(createBtn('📁 Select Folder', async () => await window.debugLogger.selectFolder(), '#FF9800'));
     content.appendChild(saveSection);
 
     // Actions section
@@ -2764,43 +2776,41 @@ I'm debugging an Angular application and need help analyzing the following issue
   });
 
   // Show help on start
-  originalConsole.log('%c💡 Quick Access:', styles.info);
-  originalConsole.log('%c   • Click the 🐛 button (bottom-right) to open UI', styles.info);
-  originalConsole.log('%c   • Type "dl" instead of "debugLogger" (shorter!)', styles.info);
-  originalConsole.log('%c   • Keyboard shortcuts: Ctrl+Shift+D (UI), Ctrl+Shift+E (Errors), Ctrl+Shift+S (Summary)', styles.info);
-  originalConsole.log('%c   • Type dl.help() for all commands', styles.info);
+  originalConsole.log('%c💡 Quick Start:', 'color: #4CAF50; font-weight: bold; font-size: 14px;');
+  originalConsole.log('%c   1. Select Folder: dl.selectFolder() ← DO THIS FIRST! ⭐', 'color: #FF9800; font-weight: bold;');
+  originalConsole.log('%c   2. Browse your Angular app (everything auto-tracks)', 'color: #666;');
+  originalConsole.log('%c   3. Click 🐛 button (bottom-right) to access all features', 'color: #666;');
+  originalConsole.log('%c   4. All files save to your selected folder automatically', 'color: #666;');
   originalConsole.log('');
-  originalConsole.log('%c🤖 NEW AI Analysis Features:', 'color: #FF6B6B; font-weight: bold; font-size: 14px;');
-  originalConsole.log('%c   • dl.aiPrompt() - Generate AI-ready analysis prompt', 'color: #FF6B6B;');
-  originalConsole.log('%c   • dl.downloadCopilotLog() - Download Markdown log for VS Code Copilot ⭐', 'color: #FF6B6B;');
-  originalConsole.log('%c   • dl.downloadAIPackage() - Download complete debug package for AI', 'color: #FF6B6B;');
-  originalConsole.log('%c   • dl.jira() - Create detailed JIRA tickets with component names & line numbers', 'color: #0052CC;');
-  originalConsole.log('%c   • dl.showAngularInfo() - View Angular components and errors', 'color: #DD0031;');
+  originalConsole.log('%c📁 Folder-Based Workflow (Recommended):', 'color: #0078D4; font-weight: bold;');
+  originalConsole.log('%c   • dl.selectFolder() - Choose where to save all debug files', 'color: #666;');
+  originalConsole.log('%c   • dl.saveAIPackage() - Save complete analysis package', 'color: #666;');
+  originalConsole.log('%c   • dl.saveCopilotLog() - Save Copilot-optimized Markdown', 'color: #666;');
+  originalConsole.log('%c   • dl.saveJiraTicket() - Save JIRA ticket to folder', 'color: #666;');
+  originalConsole.log('%c   • All files organized in one place!', 'color: #4CAF50;');
   originalConsole.log('');
-  originalConsole.log('%c💡 VS Code Copilot Workflow:', 'color: #0078D4; font-weight: bold;');
-  originalConsole.log('%c   1. Browse your app (logger tracks everything)', 'color: #666;');
-  originalConsole.log('%c   2. Run: dl.downloadCopilotLog()', 'color: #666;');
-  originalConsole.log('%c   3. Save to: ./debugger/debug-log.md in your project', 'color: #666;');
-  originalConsole.log('%c   4. In VS Code, ask Copilot: "Read debug-log.md and create a JIRA ticket"', 'color: #666;');
+  originalConsole.log('%c🎯 Quick Commands:', styles.info);
+  originalConsole.log('%c   • dl.help() - Show all commands', 'color: #666;');
+  originalConsole.log('%c   • dl.status() - Show current status', 'color: #666;');
+  originalConsole.log('%c   • dl.showErrors() - View all errors', 'color: #666;');
+  originalConsole.log('%c   • dl.showAngularInfo() - View Angular components with errors', 'color: #666;');
 
   // Show persistence status on start
   if (config.persistToLocalStorage) {
     originalConsole.log('%c💾 Logs saving to localStorage (auto-save every ' + (config.autoSaveInterval / 1000) + 's)', styles.info);
   }
   
-  // Show file saving status on start
-  if (config.saveToFiles) {
-    if (state.fileHandle) {
-      originalConsole.log('%c💾 File saving ENABLED - Logs saving to selected directory every ' + (config.fileSaveInterval / 1000) + 's', 'color: #4CAF50; font-weight: bold;');
-    } else {
-      originalConsole.log('%c💾 File saving ENABLED - Logs will download automatically every ' + (config.fileSaveInterval / 1000) + 's', 'color: #4CAF50; font-weight: bold;');
-    }
-    originalConsole.log('%c   To disable: debugLogger.disableFileSaving()', 'color: #666;');
-  } else {
-    if (supportsFileSystemAccess) {
-      originalConsole.log('%c💡 To save logs to files: debugLogger.selectDirectory() or debugLogger.enableFileSaving()', 'color: #666; font-style: italic;');
-    } else {
-      originalConsole.log('%c💡 To enable file downloads: debugLogger.enableFileSaving()', 'color: #666; font-style: italic;');
+  // Show folder selection status on start
+  if (!state.fileHandle && supportsFileSystemAccess) {
+    originalConsole.log('');
+    originalConsole.log('%c⚠️  NO FOLDER SELECTED', 'background: #FF9800; color: white; padding: 5px 10px; font-weight: bold;');
+    originalConsole.log('%c   Run: dl.selectFolder() to choose where to save debug files', 'color: #FF9800;');
+    originalConsole.log('%c   All save buttons will prompt you to select a folder first', 'color: #666;');
+  } else if (state.fileHandle) {
+    originalConsole.log('');
+    originalConsole.log('%c✅ FOLDER SELECTED - All files save automatically!', 'background: #4CAF50; color: white; padding: 5px 10px; font-weight: bold;');
+    if (config.saveToFiles) {
+      originalConsole.log('%c   Auto-save enabled (every ' + (config.fileSaveInterval / 1000) + 's)', 'color: #4CAF50;');
     }
   }
   

@@ -752,28 +752,82 @@
   // Helper to detect Angular component name
   function detectAngularComponent() {
     try {
-      // Try to get Angular component from DOM
-      const ngComponent = document.querySelector('[ng-version]') ||
-                         document.querySelector('[data-ng-app]') ||
-                         document.querySelector('[ng-app]');
+      // Method 1: Try Angular DevTools API (ng.getComponent)
+      if (typeof ng !== 'undefined' && ng.getComponent) {
+        try {
+          // Try to get component from router-outlet or app root
+          const routerOutlet = document.querySelector('router-outlet') ||
+                               document.querySelector('[ng-version]') ||
+                               document.querySelector('app-root') ||
+                               document.body;
 
-      if (ngComponent) {
-        // Try to get component name from Angular DevTools or DOM attributes
-        const componentName = ngComponent.getAttribute('ng-component') ||
-                             ngComponent.getAttribute('data-ng-component') ||
-                             ngComponent.className.split(' ').find(c => c.includes('Component') || c.includes('component'));
+          if (routerOutlet) {
+            // Try next sibling (the actual routed component)
+            let element = routerOutlet.nextElementSibling || routerOutlet;
+            const component = ng.getComponent(element);
 
-        if (componentName) return componentName;
-
-        // Try to extract from Angular's internal state (if available)
-        if (window.ng && window.ng.probe) {
-          const rootElement = document.body;
-          const componentInstance = window.ng.probe(rootElement);
-          if (componentInstance && componentInstance.componentInstance) {
-            const constructor = componentInstance.componentInstance.constructor;
-            if (constructor && constructor.name) {
-              return constructor.name;
+            if (component && component.constructor && component.constructor.name) {
+              const name = component.constructor.name;
+              // Filter out generic names
+              if (name !== 'Object' && name !== 'Function' && !name.startsWith('_')) {
+                return name;
+              }
             }
+          }
+        } catch (e) {
+          // ng.getComponent might fail, continue to other methods
+        }
+      }
+
+      // Method 2: Try to get from Angular router
+      if (typeof ng !== 'undefined' && ng.getInjector) {
+        try {
+          const appRoot = document.querySelector('[ng-version]') || document.body;
+          const injector = ng.getInjector(appRoot);
+          if (injector) {
+            const router = injector.get('Router');
+            if (router && router.url) {
+              // Return the current route path as context
+              return `Route: ${router.url}`;
+            }
+          }
+        } catch (e) {
+          // Router might not be available
+        }
+      }
+
+      // Method 3: Try to extract from router-outlet + look at sibling elements
+      const routerOutlet = document.querySelector('router-outlet');
+      if (routerOutlet && routerOutlet.nextElementSibling) {
+        const nextEl = routerOutlet.nextElementSibling;
+        const tagName = nextEl.tagName.toLowerCase();
+
+        // Angular component selectors are typically like: app-user-profile, app-dashboard, etc.
+        if (tagName.includes('-')) {
+          // Convert kebab-case to PascalCase: app-user-profile -> UserProfile
+          const componentName = tagName
+            .split('-')
+            .slice(1) // Remove 'app' or other prefix
+            .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+            .join('') + 'Component';
+
+          return componentName;
+        }
+      }
+
+      // Method 4: Look for app-root and try to infer from URL
+      const ngRoot = document.querySelector('[ng-version]');
+      if (ngRoot) {
+        const path = window.location.pathname;
+        if (path && path !== '/') {
+          // Try to infer component from URL path
+          // e.g., /users/profile -> UsersProfileComponent
+          const pathParts = path.split('/').filter(p => p && !p.match(/^\d+$/)); // Remove empty and numeric parts
+          if (pathParts.length > 0) {
+            const inferredName = pathParts
+              .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+              .join('') + 'Component';
+            return `${inferredName} (inferred from URL: ${path})`;
           }
         }
 

@@ -313,6 +313,10 @@
     const method = args[1]?.method || 'GET';
     const startTime = Date.now();
 
+    // Capture the call stack to identify the initiator
+    const callStack = new Error().stack;
+    const initiatorDetails = extractAngularDetailsFromStack(callStack);
+
     const requestKey = `${method} ${url}`;
     state.requestCounts[requestKey] = (state.requestCounts[requestKey] || 0) + 1;
 
@@ -340,12 +344,17 @@
       }
     }
 
-    originalConsole.log(
-      '%c🌐 REQUEST',
-      styles.network,
-      method,
-      url
-    );
+    // Log with component info if available
+    let logMessage = `🌐 REQUEST ${method} ${url}`;
+    if (initiatorDetails && initiatorDetails.components.length > 0) {
+      const comp = initiatorDetails.components[0];
+      logMessage += ` [from ${comp.name}]`;
+    } else if (initiatorDetails && initiatorDetails.services.length > 0) {
+      const svc = initiatorDetails.services[0];
+      logMessage += ` [from ${svc.name}]`;
+    }
+
+    originalConsole.log('%c' + logMessage, styles.network);
 
     return originalFetch.apply(this, args).then(async response => {
       const duration = Date.now() - startTime;
@@ -381,6 +390,8 @@
         responseHeaders,
         requestBody,
         responseBody,
+        initiator: initiatorDetails, // Component/service that made the request
+        callStack: callStack, // Full call stack for debugging
       });
 
       let style = isSuccess ? styles.success : styles.error;
@@ -464,14 +475,25 @@
     const xhr = this;
     const requestKey = `${xhr._debugMethod} ${xhr._debugUrl}`;
 
+    // Capture the call stack to identify the initiator
+    const callStack = new Error().stack;
+    const initiatorDetails = extractAngularDetailsFromStack(callStack);
+    xhr._debugInitiator = initiatorDetails;
+    xhr._debugCallStack = callStack;
+
     state.requestCounts[requestKey] = (state.requestCounts[requestKey] || 0) + 1;
 
-    originalConsole.log(
-      '%c🌐 XHR REQUEST',
-      styles.network,
-      xhr._debugMethod,
-      xhr._debugUrl
-    );
+    // Log with component info if available
+    let logMessage = `🌐 XHR REQUEST ${xhr._debugMethod} ${xhr._debugUrl}`;
+    if (initiatorDetails && initiatorDetails.components.length > 0) {
+      const comp = initiatorDetails.components[0];
+      logMessage += ` [from ${comp.name}]`;
+    } else if (initiatorDetails && initiatorDetails.services.length > 0) {
+      const svc = initiatorDetails.services[0];
+      logMessage += ` [from ${svc.name}]`;
+    }
+
+    originalConsole.log('%c' + logMessage, styles.network);
 
     xhr.addEventListener('load', function() {
       const duration = Date.now() - xhr._debugStartTime;
@@ -487,6 +509,8 @@
         duration,
         timestamp: new Date().toISOString(),
         page: state.currentPage,
+        initiator: xhr._debugInitiator, // Component/service that made the request
+        callStack: xhr._debugCallStack, // Full call stack for debugging
       });
 
       let style = isSuccess ? styles.success : styles.error;
@@ -1543,12 +1567,22 @@ I'm debugging an Angular application and need help analyzing the following issue
 
     // Recent Activity
     md += `## 📊 Recent Activity\n\n`;
-    md += `Last 10 requests:\n\n`;
-    md += `| Time | Method | URL | Status | Duration |\n`;
-    md += `|------|--------|-----|--------|----------|\n`;
+    md += `Last 10 requests with initiator information:\n\n`;
+    md += `| Time | Method | URL | Status | Duration | Initiated By |\n`;
+    md += `|------|--------|-----|--------|----------|-------------|\n`;
     state.requests.slice(-10).forEach(req => {
       const time = new Date(req.timestamp).toLocaleTimeString();
-      md += `| ${time} | ${req.method} | \`${req.url}\` | ${req.status || 'N/A'} | ${req.duration}ms |\n`;
+      let initiator = 'Unknown';
+      if (req.initiator) {
+        if (req.initiator.components.length > 0) {
+          const comp = req.initiator.components[0];
+          initiator = `${comp.name} (${comp.file}:${comp.line})`;
+        } else if (req.initiator.services.length > 0) {
+          const svc = req.initiator.services[0];
+          initiator = `${svc.name} (${svc.file}:${svc.line})`;
+        }
+      }
+      md += `| ${time} | ${req.method} | \`${req.url}\` | ${req.status || 'N/A'} | ${req.duration}ms | ${initiator} |\n`;
     });
     md += `\n`;
 
@@ -1678,6 +1712,18 @@ I'm debugging an Angular application and need help analyzing the following issue
     text += `----------------\n`;
     state.requests.forEach(r => {
       text += `[${r.timestamp}] ${r.status} ${r.method} ${r.url} (${r.duration}ms) - ${r.page}\n`;
+
+      // Add initiator information
+      if (r.initiator) {
+        if (r.initiator.components.length > 0) {
+          const comp = r.initiator.components[0];
+          text += `  Initiator: ${comp.name}.${comp.method}() in ${comp.file}:${comp.line}\n`;
+        } else if (r.initiator.services.length > 0) {
+          const svc = r.initiator.services[0];
+          text += `  Initiator: ${svc.name}.${svc.method}() in ${svc.file}:${svc.line}\n`;
+        }
+      }
+
       if (r.requestBody) {
         text += `  Request Body: ${typeof r.requestBody === 'string' ? r.requestBody.substring(0, 200) : r.requestBody}\n`;
       }
@@ -1849,7 +1895,41 @@ I'm debugging an Angular application and need help analyzing the following issue
 
     // Show all requests
     showAllRequests: () => {
-      originalConsole.table(state.requests);
+      originalConsole.group('%c🌐 All HTTP Requests', styles.header);
+
+      if (state.requests.length === 0) {
+        originalConsole.log('No requests tracked yet');
+        originalConsole.groupEnd();
+        return;
+      }
+
+      // Create a simplified table view
+      const tableData = state.requests.map(req => {
+        let initiatorInfo = '-';
+        if (req.initiator) {
+          if (req.initiator.components.length > 0) {
+            const comp = req.initiator.components[0];
+            initiatorInfo = `${comp.name}.${comp.method} (${comp.file}:${comp.line})`;
+          } else if (req.initiator.services.length > 0) {
+            const svc = req.initiator.services[0];
+            initiatorInfo = `${svc.name}.${svc.method} (${svc.file}:${svc.line})`;
+          }
+        }
+
+        return {
+          method: req.method,
+          status: req.status,
+          duration: req.duration + 'ms',
+          url: req.url.length > 80 ? req.url.substring(0, 80) + '...' : req.url,
+          initiator: initiatorInfo,
+          page: req.page
+        };
+      });
+
+      originalConsole.table(tableData);
+      originalConsole.log(`\nTotal Requests: ${state.requests.length}`);
+      originalConsole.log(`💡 Tip: Each request now shows which component/service made it!`);
+      originalConsole.groupEnd();
     },
 
     // Show all errors

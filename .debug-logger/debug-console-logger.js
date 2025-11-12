@@ -1355,6 +1355,195 @@ I'm debugging an Angular application and need help analyzing the following issue
     return jira;
   }
 
+  // Generate Copilot-optimized Markdown log
+  function generateCopilotMarkdown() {
+    const errors = state.errors;
+    const slowRequests = state.requests.filter(r => r.duration > config.highlightSlowRequests);
+    const failedRequests = state.requests.filter(r => r.status >= 400);
+    const duplicateRequests = Object.keys(state.requestCounts).filter(k => state.requestCounts[k] > 1);
+    const jsErrors = state.errors.filter(e => e.type === 'JavaScript Error');
+    const networkErrors = state.errors.filter(e => e.type === 'Network Error');
+    const componentName = detectAngularComponent();
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+    let md = `# Debug Log Analysis\n\n`;
+    md += `> **For VS Code Copilot**: This file contains comprehensive debugging information from an Angular application. Read this file to understand errors, performance issues, and help create JIRA tickets or suggest fixes.\n\n`;
+
+    md += `## Session Information\n\n`;
+    md += `- **Session ID**: \`${state.sessionId}\`\n`;
+    md += `- **Timestamp**: ${new Date().toISOString()}\n`;
+    md += `- **URL**: ${window.location.href}\n`;
+    md += `- **Current Page**: ${state.currentPage}\n`;
+    md += `- **Angular Version**: ${document.querySelector('[ng-version]')?.getAttribute('ng-version') || 'Not detected'}\n`;
+    if (componentName) {
+      md += `- **Current Component**: ${componentName}\n`;
+    }
+    md += `- **Browser**: ${state.browserInfo.userAgent}\n`;
+    md += `- **Platform**: ${state.browserInfo.platform}\n`;
+    md += `- **Session Duration**: ${Math.round((Date.now() - state.sessionStartTime) / 1000)}s\n\n`;
+
+    md += `## Quick Summary\n\n`;
+    md += `| Metric | Count | Status |\n`;
+    md += `|--------|-------|--------|\n`;
+    md += `| Total Errors | ${errors.length} | ${errors.length > 0 ? '❌ CRITICAL' : '✅ OK'} |\n`;
+    md += `| HTTP Requests | ${state.requests.length} | ℹ️ Info |\n`;
+    md += `| Failed Requests (4xx/5xx) | ${failedRequests.length} | ${failedRequests.length > 0 ? '⚠️ Warning' : '✅ OK'} |\n`;
+    md += `| Slow Requests (>${config.highlightSlowRequests}ms) | ${slowRequests.length} | ${slowRequests.length > 0 ? '⚠️ Warning' : '✅ OK'} |\n`;
+    md += `| Duplicate API Calls | ${duplicateRequests.length} | ${duplicateRequests.length > 0 ? '⚠️ Warning' : '✅ OK'} |\n`;
+    md += `| WebSocket Connections | ${state.websockets.length} | ℹ️ Info |\n\n`;
+
+    // Priority Issues Section
+    md += `## 🚨 Priority Issues\n\n`;
+    if (errors.length === 0 && failedRequests.length === 0) {
+      md += `✅ **No critical issues detected!**\n\n`;
+    } else {
+      if (jsErrors.length > 0) {
+        md += `### ❌ JavaScript Errors (${jsErrors.length})\n\n`;
+        md += `**Copilot**: Please analyze these errors and suggest fixes.\n\n`;
+
+        jsErrors.forEach((err, idx) => {
+          md += `#### Error ${idx + 1}: ${err.message}\n\n`;
+          md += `- **Type**: ${err.type}\n`;
+          md += `- **Page**: \`${err.page}\`\n`;
+          md += `- **Timestamp**: ${err.timestamp}\n`;
+
+          if (err.filename) {
+            md += `- **Location**: \`${err.filename}:${err.lineno}:${err.colno || '?'}\`\n`;
+          }
+
+          if (err.stack) {
+            const angularDetails = extractAngularDetailsFromStack(err.stack);
+
+            if (angularDetails.components.length > 0) {
+              md += `\n**Angular Components**:\n`;
+              angularDetails.components.forEach(comp => {
+                md += `- \`${comp.name}\` in \`${comp.file}:${comp.line || '?'}\` (method: \`${comp.method}\`)\n`;
+              });
+            }
+
+            if (angularDetails.services.length > 0) {
+              md += `\n**Angular Services**:\n`;
+              angularDetails.services.forEach(svc => {
+                md += `- \`${svc.name}\` in \`${svc.file}:${svc.line || '?'}\` (method: \`${svc.method}\`)\n`;
+              });
+            }
+
+            md += `\n**Stack Trace**:\n\`\`\`\n${err.stack}\n\`\`\`\n\n`;
+          }
+
+          md += `---\n\n`;
+        });
+      }
+
+      if (failedRequests.length > 0) {
+        md += `### ⚠️ Failed HTTP Requests (${failedRequests.length})\n\n`;
+        md += `**Copilot**: Please analyze these failed requests and suggest fixes.\n\n`;
+
+        failedRequests.forEach((req, idx) => {
+          md += `#### Failed Request ${idx + 1}\n\n`;
+          md += `- **Method**: \`${req.method}\`\n`;
+          md += `- **URL**: \`${req.url}\`\n`;
+          md += `- **Status**: ${req.status}\n`;
+          md += `- **Duration**: ${req.duration}ms\n`;
+          md += `- **Page**: \`${req.page}\`\n`;
+
+          if (req.requestBody) {
+            md += `\n**Request Body**:\n\`\`\`json\n${typeof req.requestBody === 'string' ? req.requestBody.substring(0, 500) : JSON.stringify(req.requestBody, null, 2).substring(0, 500)}\n\`\`\`\n`;
+          }
+
+          if (req.responseBody) {
+            md += `\n**Response Body**:\n\`\`\`json\n${typeof req.responseBody === 'string' ? req.responseBody.substring(0, 500) : JSON.stringify(req.responseBody, null, 2).substring(0, 500)}\n\`\`\`\n`;
+          }
+
+          md += `\n---\n\n`;
+        });
+      }
+    }
+
+    // Performance Issues
+    if (slowRequests.length > 0 || duplicateRequests.length > 0) {
+      md += `## ⚡ Performance Issues\n\n`;
+
+      if (slowRequests.length > 0) {
+        md += `### Slow Requests (${slowRequests.length})\n\n`;
+        md += `**Copilot**: These requests are slower than ${config.highlightSlowRequests}ms. Please suggest optimizations.\n\n`;
+        md += `| Method | URL | Duration | Status |\n`;
+        md += `|--------|-----|----------|--------|\n`;
+        slowRequests.slice(0, 20).forEach(req => {
+          md += `| ${req.method} | \`${req.url}\` | ${req.duration}ms | ${req.status || 'N/A'} |\n`;
+        });
+        md += `\n`;
+      }
+
+      if (duplicateRequests.length > 0) {
+        md += `### Duplicate API Calls (${duplicateRequests.length})\n\n`;
+        md += `**Copilot**: These endpoints are being called multiple times. Please suggest deduplication strategies.\n\n`;
+        md += `| Endpoint | Times Called |\n`;
+        md += `|----------|-------------|\n`;
+        duplicateRequests.forEach(key => {
+          md += `| \`${key}\` | ${state.requestCounts[key]}x |\n`;
+        });
+        md += `\n`;
+      }
+    }
+
+    // Recent Activity
+    md += `## 📊 Recent Activity\n\n`;
+    md += `Last 10 requests:\n\n`;
+    md += `| Time | Method | URL | Status | Duration |\n`;
+    md += `|------|--------|-----|--------|----------|\n`;
+    state.requests.slice(-10).forEach(req => {
+      const time = new Date(req.timestamp).toLocaleTimeString();
+      md += `| ${time} | ${req.method} | \`${req.url}\` | ${req.status || 'N/A'} | ${req.duration}ms |\n`;
+    });
+    md += `\n`;
+
+    // Copilot Action Items
+    md += `## 🤖 Copilot Action Items\n\n`;
+    md += `Please help with the following:\n\n`;
+
+    if (errors.length > 0) {
+      md += `1. **Error Analysis**: Analyze the ${errors.length} error(s) above and provide:\n`;
+      md += `   - Root cause for each error\n`;
+      md += `   - Specific code fixes with file names and line numbers\n`;
+      md += `   - Prevention strategies\n\n`;
+    }
+
+    if (failedRequests.length > 0) {
+      md += `2. **Failed Request Analysis**: Review the ${failedRequests.length} failed request(s) and suggest:\n`;
+      md += `   - Why the requests failed\n`;
+      md += `   - How to fix the request payload or endpoint\n`;
+      md += `   - Error handling improvements\n\n`;
+    }
+
+    if (slowRequests.length > 0) {
+      md += `3. **Performance Optimization**: Optimize the ${slowRequests.length} slow request(s):\n`;
+      md += `   - Identify bottlenecks\n`;
+      md += `   - Suggest caching strategies\n`;
+      md += `   - Recommend pagination or lazy loading\n\n`;
+    }
+
+    if (duplicateRequests.length > 0) {
+      md += `4. **Deduplication**: Eliminate ${duplicateRequests.length} duplicate API call(s):\n`;
+      md += `   - Identify why duplicates occur\n`;
+      md += `   - Suggest state management improvements\n`;
+      md += `   - Recommend request caching\n\n`;
+    }
+
+    md += `5. **JIRA Ticket**: Generate a comprehensive JIRA ticket for these issues including:\n`;
+    md += `   - Summary and description\n`;
+    md += `   - Steps to reproduce\n`;
+    md += `   - Expected vs actual behavior\n`;
+    md += `   - Technical details (component names, file paths, line numbers)\n`;
+    md += `   - Acceptance criteria\n\n`;
+
+    md += `---\n\n`;
+    md += `*Generated by Debug Logger Enhanced for Angular*\n`;
+    md += `*Session: ${state.sessionId}*\n`;
+
+    return md;
+  }
+
   // Generate text log content
   function generateTextLog() {
     let text = `Debug Logs\n`;
@@ -1775,6 +1964,42 @@ I'm debugging an Angular application and need help analyzing the following issue
       originalConsole.log('%c💾 Text logs downloaded', styles.success);
     },
 
+    // Download Copilot-optimized Markdown file
+    downloadCopilotLog: (filename) => {
+      const markdown = generateCopilotMarkdown();
+      const blob = new Blob([markdown], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || `debug-copilot-${new Date().toISOString().split('T')[0]}.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      originalConsole.log('%c🤖 Copilot-optimized log downloaded!', styles.success);
+      originalConsole.log('%c📝 This file is optimized for VS Code Copilot to read and analyze', styles.info);
+      originalConsole.log('%c   1. Save to your project folder (e.g., ./debugger/)', styles.info);
+      originalConsole.log('%c   2. Open in VS Code', styles.info);
+      originalConsole.log('%c   3. Ask Copilot: "Read this file and create a JIRA ticket"', styles.info);
+      return 'Copilot log downloaded';
+    },
+
+    // Save Copilot log to console for copy/paste
+    copilotLog: () => {
+      const markdown = generateCopilotMarkdown();
+      originalConsole.log('\n' + '='.repeat(80));
+      originalConsole.log('🤖 COPILOT-OPTIMIZED DEBUG LOG');
+      originalConsole.log('='.repeat(80));
+      originalConsole.log('\n' + markdown + '\n');
+      originalConsole.log('='.repeat(80));
+      originalConsole.log('\n%c💡 TIP:', 'font-weight: bold; color: #2196F3;');
+      originalConsole.log('   1. Copy this entire log');
+      originalConsole.log('   2. Save as a .md file in your project (e.g., debugger/debug-log.md)');
+      originalConsole.log('   3. Open in VS Code and ask Copilot to analyze it');
+      originalConsole.log('   4. Or use: dl.downloadCopilotLog() to download directly\n');
+      return markdown;
+    },
+
     // Send logs to backend now
     sendToBackend: () => {
       sendToBackend();
@@ -2004,6 +2229,8 @@ I'm debugging an Angular application and need help analyzing the following issue
       originalConsole.log('%cAI Analysis (NEW!):', 'font-weight: bold; color: #FF6B6B;');
       originalConsole.log('  debugLogger.aiPrompt()              - Generate AI analysis prompt (GitHub Copilot, ChatGPT, Claude)');
       originalConsole.log('  debugLogger.downloadAIPackage()     - Download complete package for AI analysis');
+      originalConsole.log('  debugLogger.downloadCopilotLog()    - Download Copilot-optimized Markdown log for VS Code');
+      originalConsole.log('  debugLogger.copilotLog()            - Show Copilot log in console (for copy/paste)');
       originalConsole.log('  debugLogger.showAngularInfo()       - Show Angular-specific debugging info');
       originalConsole.log('  debugLogger.snapshot()              - Capture current DOM snapshot');
       originalConsole.log('  debugLogger.exportWithAngular()     - Export with enhanced Angular details');
@@ -2351,6 +2578,7 @@ I'm debugging an Angular application and need help analyzing the following issue
       setTimeout(() => this.textContent = originalText, 2000);
     }, '#FF6B6B');
     aiSection.appendChild(aiPromptBtn);
+    aiSection.appendChild(createBtn('📝 Copilot Log (VS Code)', () => window.debugLogger.downloadCopilotLog(), '#0078D4'));
     aiSection.appendChild(createBtn('📦 Download AI Package', () => window.debugLogger.downloadAIPackage(), '#FF6B6B'));
     aiSection.appendChild(createBtn('⚛️ Angular Info', () => window.debugLogger.showAngularInfo(), '#DD0031'));
     content.appendChild(aiSection);
@@ -2490,9 +2718,16 @@ I'm debugging an Angular application and need help analyzing the following issue
   originalConsole.log('');
   originalConsole.log('%c🤖 NEW AI Analysis Features:', 'color: #FF6B6B; font-weight: bold; font-size: 14px;');
   originalConsole.log('%c   • dl.aiPrompt() - Generate AI-ready analysis prompt', 'color: #FF6B6B;');
+  originalConsole.log('%c   • dl.downloadCopilotLog() - Download Markdown log for VS Code Copilot ⭐', 'color: #FF6B6B;');
   originalConsole.log('%c   • dl.downloadAIPackage() - Download complete debug package for AI', 'color: #FF6B6B;');
   originalConsole.log('%c   • dl.jira() - Create detailed JIRA tickets with component names & line numbers', 'color: #0052CC;');
   originalConsole.log('%c   • dl.showAngularInfo() - View Angular components and errors', 'color: #DD0031;');
+  originalConsole.log('');
+  originalConsole.log('%c💡 VS Code Copilot Workflow:', 'color: #0078D4; font-weight: bold;');
+  originalConsole.log('%c   1. Browse your app (logger tracks everything)', 'color: #666;');
+  originalConsole.log('%c   2. Run: dl.downloadCopilotLog()', 'color: #666;');
+  originalConsole.log('%c   3. Save to: ./debugger/debug-log.md in your project', 'color: #666;');
+  originalConsole.log('%c   4. In VS Code, ask Copilot: "Read debug-log.md and create a JIRA ticket"', 'color: #666;');
 
   // Show persistence status on start
   if (config.persistToLocalStorage) {

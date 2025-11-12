@@ -1,6 +1,6 @@
-# Frontend Debug Logger
+# Frontend Debug Logger - Enhanced for Angular
 
-A comprehensive browser-based debugging tool that captures HTTP requests, WebSocket activity, JavaScript errors, console logs, and performance metrics. Perfect for debugging frontend applications with automatic persistence and backend logging support.
+A comprehensive browser-based debugging tool enhanced specifically for Angular applications with AI-powered analysis capabilities. Captures HTTP requests, WebSocket activity, JavaScript errors, console logs, and performance metrics with automatic Angular component detection and AI-ready analysis generation.
 
 ## 🚀 Quick Start
 
@@ -19,6 +19,62 @@ After pasting the script, you'll see a **🐛 button** in the bottom-right corne
 - Click the **🐛 button** (bottom-right corner) to open/close the UI panel
 - Keyboard shortcut: `Ctrl+Shift+D` (or `Cmd+Shift+D` on Mac)
 - Type `dl` instead of `debugLogger` for shorter commands
+
+## 🤖 NEW: AI-Powered Analysis Features
+
+The debug logger now includes powerful AI analysis capabilities specifically designed for Angular debugging:
+
+### Key Features
+
+1. **AI Prompt Generation (`dl.aiPrompt()`)**
+   - Generates ready-to-use prompts for GitHub Copilot, ChatGPT, or Claude
+   - Includes all errors with extracted Angular component names and line numbers
+   - Provides specific questions for root cause analysis
+   - Automatically copied to clipboard
+
+2. **Enhanced JIRA Tickets (`dl.jira()`)**
+   - Now extracts Angular components, services, directives, pipes from stack traces
+   - Shows exact file locations with line numbers (e.g., `user.component.ts:127`)
+   - Identifies methods where errors occurred
+   - Complete Angular artifact tracking
+
+3. **Angular-Specific Analysis (`dl.showAngularInfo()`)**
+   - Displays Angular version
+   - Shows all components/services with errors
+   - Lists file locations and line numbers
+   - Router and element detection
+
+4. **AI Debug Package (`dl.downloadAIPackage()`)**
+   - Downloads complete package for offline AI analysis
+   - Includes AI-ready prompt, full logs, DOM snapshot
+   - Perfect for sharing with AI assistants
+
+5. **DOM Snapshot (`dl.snapshot()`)**
+   - Captures current page state, forms, Angular elements
+   - Includes viewport and navigation context
+
+### Quick Example
+
+```javascript
+// 1. Reproduce your bug
+// 2. Generate AI analysis prompt
+dl.aiPrompt()
+
+// 3. Paste into GitHub Copilot, ChatGPT, or Claude
+// 4. Get specific fixes with component names and line numbers!
+```
+
+### What Gets Extracted
+
+From stack traces like:
+```
+at UserProfileComponent.ngOnInit (user-profile.component.ts:127:15)
+at UserService.getUserData (user.service.ts:45:10)
+```
+
+You get:
+- **Component**: `UserProfileComponent` in `user-profile.component.ts:127` (method: `ngOnInit`)
+- **Service**: `UserService` in `user.service.ts:45` (method: `getUserData`)
 
 ## 📋 Requirements
 
@@ -81,6 +137,11 @@ The visual UI panel provides easy access to all logger features. Here's what eac
 - **📈 By Endpoint** → `debugLogger.showByEndpoint()` - Request stats grouped by endpoint
 - **🔌 WebSockets** → `debugLogger.showWebSockets()` - View all WebSocket connections
 
+### 🤖 AI Analysis Section (NEW!)
+- **🤖 Copy AI Prompt** → `debugLogger.aiPrompt()` - Generate and copy AI-ready analysis prompt for GitHub Copilot, ChatGPT, or Claude
+- **📦 Download AI Package** → `debugLogger.downloadAIPackage()` - Download complete package with prompt, logs, and DOM snapshot for offline AI analysis
+- **⚛️ Angular Info** → `debugLogger.showAngularInfo()` - View Angular version, components, and services with errors
+
 ### Save/Export Section
 - **💾 Download Text** → `debugLogger.downloadText()` - Download all logs as a readable text file
 - **💾 Download JSON** → `debugLogger.download()` - Download all logs as JSON file
@@ -126,6 +187,13 @@ debugLogger.showErrors()          // All JavaScript/Network errors
 debugLogger.showByEndpoint()      // Request stats grouped by endpoint
 debugLogger.showWebSockets()      // All WebSocket connections
 debugLogger.showWebSocketMessages() // All WS messages
+
+// === 🤖 AI Analysis (NEW!) ===
+debugLogger.aiPrompt()            // Generate AI analysis prompt (GitHub Copilot, ChatGPT, Claude)
+debugLogger.downloadAIPackage()   // Download complete AI analysis package
+debugLogger.showAngularInfo()     // Show Angular version, components, and errors
+debugLogger.snapshot()            // Capture current DOM snapshot
+debugLogger.exportWithAngular()   // Export with enhanced Angular details
 
 // === Backend Logging ===
 debugLogger.enableBackend()       // Turn ON backend logging

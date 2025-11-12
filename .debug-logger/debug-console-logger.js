@@ -1,5 +1,5 @@
 /**
- * Frontend Debug Logger
+ * Frontend Debug Logger - Enhanced for Angular
  *
  * Paste this into your browser console to get clean logs and network monitoring
  *
@@ -12,6 +12,14 @@
  * - Color-coded output
  * - localStorage persistence (survives refresh)
  * - Backend logging support
+ *
+ * NEW - Angular Debugging Features:
+ * - Enhanced stack trace parsing for Angular components, services, directives, pipes
+ * - Component and file location extraction with line numbers
+ * - AI-ready prompt generation for GitHub Copilot, ChatGPT, Claude
+ * - Detailed JIRA ticket generation with Angular-specific context
+ * - DOM snapshot capture for visual debugging
+ * - AI analysis package export with all context
  */
 
 (function() {
@@ -745,18 +753,18 @@
   function detectAngularComponent() {
     try {
       // Try to get Angular component from DOM
-      const ngComponent = document.querySelector('[ng-version]') || 
-                         document.querySelector('[data-ng-app]') || 
+      const ngComponent = document.querySelector('[ng-version]') ||
+                         document.querySelector('[data-ng-app]') ||
                          document.querySelector('[ng-app]');
-      
+
       if (ngComponent) {
         // Try to get component name from Angular DevTools or DOM attributes
         const componentName = ngComponent.getAttribute('ng-component') ||
                              ngComponent.getAttribute('data-ng-component') ||
                              ngComponent.className.split(' ').find(c => c.includes('Component') || c.includes('component'));
-        
+
         if (componentName) return componentName;
-        
+
         // Try to extract from Angular's internal state (if available)
         if (window.ng && window.ng.probe) {
           const rootElement = document.body;
@@ -768,24 +776,293 @@
             }
           }
         }
-        
+
         return 'Angular App (component name not detected)';
       }
-      
+
       // Check for React
       if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__) {
         return 'React App';
       }
-      
+
       // Check for Vue
       if (window.__VUE__) {
         return 'Vue App';
       }
-      
+
       return null;
     } catch (e) {
       return null;
     }
+  }
+
+  // Enhanced Angular component extraction from stack traces
+  function extractAngularDetailsFromStack(stack) {
+    if (!stack) return null;
+
+    const details = {
+      components: [],
+      services: [],
+      directives: [],
+      pipes: [],
+      modules: [],
+      files: []
+    };
+
+    // Patterns for Angular artifacts
+    const patterns = {
+      component: /([A-Z][a-zA-Z0-9_]*Component)\.?(?:\.([a-zA-Z0-9_]+))?\s*(?:\[as\s+[^\]]+\])?\s*\((?:.*?\/)?([^/:)]+\.(?:component|ts|js))(?::(\d+))?(?::(\d+))?\)/g,
+      service: /([A-Z][a-zA-Z0-9_]*Service)\.?(?:\.([a-zA-Z0-9_]+))?\s*(?:\[as\s+[^\]]+\])?\s*\((?:.*?\/)?([^/:)]+\.(?:service|ts|js))(?::(\d+))?(?::(\d+))?\)/g,
+      directive: /([A-Z][a-zA-Z0-9_]*Directive)\.?(?:\.([a-zA-Z0-9_]+))?\s*(?:\[as\s+[^\]]+\])?\s*\((?:.*?\/)?([^/:)]+\.(?:directive|ts|js))(?::(\d+))?(?::(\d+))?\)/g,
+      pipe: /([A-Z][a-zA-Z0-9_]*Pipe)\.?(?:\.([a-zA-Z0-9_]+))?\s*(?:\[as\s+[^\]]+\])?\s*\((?:.*?\/)?([^/:)]+\.(?:pipe|ts|js))(?::(\d+))?(?::(\d+))?\)/g,
+      module: /([A-Z][a-zA-Z0-9_]*Module)\.?(?:\.([a-zA-Z0-9_]+))?\s*(?:\[as\s+[^\]]+\])?\s*\((?:.*?\/)?([^/:)]+\.(?:module|ts|js))(?::(\d+))?(?::(\d+))?\)/g,
+      anyFile: /at\s+(?:.*?\s+)?\((?:.*?\/)?([^/:)]+\.(?:ts|js))(?::(\d+))?(?::(\d+))?\)/g
+    };
+
+    // Extract components
+    let match;
+    while ((match = patterns.component.exec(stack)) !== null) {
+      details.components.push({
+        name: match[1],
+        method: match[2] || 'constructor',
+        file: match[3],
+        line: match[4] ? parseInt(match[4]) : null,
+        column: match[5] ? parseInt(match[5]) : null
+      });
+    }
+
+    // Extract services
+    patterns.service.lastIndex = 0;
+    while ((match = patterns.service.exec(stack)) !== null) {
+      details.services.push({
+        name: match[1],
+        method: match[2] || 'unknown',
+        file: match[3],
+        line: match[4] ? parseInt(match[4]) : null,
+        column: match[5] ? parseInt(match[5]) : null
+      });
+    }
+
+    // Extract directives
+    patterns.directive.lastIndex = 0;
+    while ((match = patterns.directive.exec(stack)) !== null) {
+      details.directives.push({
+        name: match[1],
+        method: match[2] || 'unknown',
+        file: match[3],
+        line: match[4] ? parseInt(match[4]) : null,
+        column: match[5] ? parseInt(match[5]) : null
+      });
+    }
+
+    // Extract pipes
+    patterns.pipe.lastIndex = 0;
+    while ((match = patterns.pipe.exec(stack)) !== null) {
+      details.pipes.push({
+        name: match[1],
+        method: match[2] || 'unknown',
+        file: match[3],
+        line: match[4] ? parseInt(match[4]) : null,
+        column: match[5] ? parseInt(match[5]) : null
+      });
+    }
+
+    // Extract modules
+    patterns.module.lastIndex = 0;
+    while ((match = patterns.module.exec(stack)) !== null) {
+      details.modules.push({
+        name: match[1],
+        method: match[2] || 'unknown',
+        file: match[3],
+        line: match[4] ? parseInt(match[4]) : null,
+        column: match[5] ? parseInt(match[5]) : null
+      });
+    }
+
+    // Extract all files mentioned
+    patterns.anyFile.lastIndex = 0;
+    while ((match = patterns.anyFile.exec(stack)) !== null) {
+      details.files.push({
+        file: match[1],
+        line: match[2] ? parseInt(match[2]) : null,
+        column: match[3] ? parseInt(match[3]) : null
+      });
+    }
+
+    return details;
+  }
+
+  // Capture DOM snapshot for context
+  function captureDOMSnapshot() {
+    try {
+      const snapshot = {
+        url: window.location.href,
+        title: document.title,
+        activeElement: document.activeElement ? {
+          tagName: document.activeElement.tagName,
+          id: document.activeElement.id,
+          className: document.activeElement.className,
+          value: document.activeElement.value ? '[REDACTED]' : null
+        } : null,
+        bodyClasses: Array.from(document.body.classList),
+        ngVersion: document.querySelector('[ng-version]')?.getAttribute('ng-version'),
+        // Angular router state
+        routerOutlets: Array.from(document.querySelectorAll('router-outlet')).length,
+        // Forms state
+        forms: Array.from(document.querySelectorAll('form')).map(form => ({
+          id: form.id,
+          name: form.name,
+          action: form.action,
+          method: form.method,
+          fields: form.elements.length
+        })),
+        // Angular-specific elements
+        angularComponents: Array.from(document.querySelectorAll('[ng-reflect-ng-if], [ng-reflect-ng-for-of]')).length,
+        // Console errors visible
+        consoleErrorCount: state.errors.length,
+        // Viewport
+        viewport: {
+          width: window.innerWidth,
+          height: window.innerHeight,
+          scrollX: window.scrollX,
+          scrollY: window.scrollY
+        }
+      };
+
+      return snapshot;
+    } catch (e) {
+      return { error: 'Failed to capture DOM snapshot: ' + e.message };
+    }
+  }
+
+  // Generate AI-friendly analysis prompt
+  function generateAIPrompt() {
+    const errors = state.errors;
+    const slowRequests = state.requests.filter(r => r.duration > config.highlightSlowRequests);
+    const failedRequests = state.requests.filter(r => r.status >= 400);
+    const duplicateRequests = Object.keys(state.requestCounts).filter(k => state.requestCounts[k] > 1);
+
+    let prompt = `# Angular Application Debug Analysis Request
+
+## Context
+I'm debugging an Angular application and need help analyzing the following issues. Please provide:
+1. Root cause analysis for each error
+2. Specific code fixes with file names and line numbers
+3. Best practices recommendations
+4. Potential related issues to investigate
+
+## Application Info
+- **URL**: ${window.location.href}
+- **Page**: ${state.currentPage}
+- **Session Duration**: ${Math.round((Date.now() - state.sessionStartTime) / 1000)}s
+- **Angular Version**: ${document.querySelector('[ng-version]')?.getAttribute('ng-version') || 'Unknown'}
+- **Browser**: ${state.browserInfo.userAgent}
+
+`;
+
+    // Add error details
+    if (errors.length > 0) {
+      prompt += `## Critical Errors (${errors.length})\n\n`;
+
+      errors.forEach((err, idx) => {
+        prompt += `### Error ${idx + 1}: ${err.type}\n\n`;
+        prompt += `**Message**: ${err.message}\n\n`;
+
+        if (err.filename) {
+          prompt += `**Location**: \`${err.filename}:${err.lineno}:${err.colno || '?'}\`\n\n`;
+        }
+
+        // Extract Angular details from stack
+        if (err.stack) {
+          const angularDetails = extractAngularDetailsFromStack(err.stack);
+
+          if (angularDetails.components.length > 0) {
+            prompt += `**Components Involved**:\n`;
+            angularDetails.components.forEach(comp => {
+              prompt += `- \`${comp.name}\` in \`${comp.file}:${comp.line || '?'}\` (method: \`${comp.method}\`)\n`;
+            });
+            prompt += '\n';
+          }
+
+          if (angularDetails.services.length > 0) {
+            prompt += `**Services Involved**:\n`;
+            angularDetails.services.forEach(svc => {
+              prompt += `- \`${svc.name}\` in \`${svc.file}:${svc.line || '?'}\` (method: \`${svc.method}\`)\n`;
+            });
+            prompt += '\n';
+          }
+
+          prompt += `**Stack Trace**:\n\`\`\`\n${err.stack}\n\`\`\`\n\n`;
+        }
+
+        prompt += `---\n\n`;
+      });
+    }
+
+    // Add performance issues
+    if (slowRequests.length > 0) {
+      prompt += `## Performance Issues\n\n`;
+      prompt += `### Slow Requests (${slowRequests.length} requests > ${config.highlightSlowRequests}ms)\n\n`;
+
+      slowRequests.slice(0, 10).forEach(req => {
+        prompt += `- **${req.method} ${req.url}**: ${req.duration}ms (Status: ${req.status})\n`;
+      });
+
+      if (slowRequests.length > 10) {
+        prompt += `\n...and ${slowRequests.length - 10} more slow requests\n`;
+      }
+      prompt += '\n';
+    }
+
+    // Add failed requests
+    if (failedRequests.length > 0) {
+      prompt += `### Failed HTTP Requests (${failedRequests.length})\n\n`;
+
+      failedRequests.slice(0, 10).forEach(req => {
+        prompt += `- **${req.status} ${req.method} ${req.url}**: ${req.duration}ms\n`;
+        if (req.responseBody) {
+          const preview = typeof req.responseBody === 'string'
+            ? req.responseBody.substring(0, 200)
+            : JSON.stringify(req.responseBody).substring(0, 200);
+          prompt += `  Response: ${preview}${preview.length >= 200 ? '...' : ''}\n`;
+        }
+      });
+
+      if (failedRequests.length > 10) {
+        prompt += `\n...and ${failedRequests.length - 10} more failed requests\n`;
+      }
+      prompt += '\n';
+    }
+
+    // Add duplicate requests
+    if (duplicateRequests.length > 0) {
+      prompt += `### Duplicate API Calls (Optimization Opportunity)\n\n`;
+
+      duplicateRequests.slice(0, 10).forEach(key => {
+        prompt += `- **${key}**: Called ${state.requestCounts[key]} times\n`;
+      });
+
+      if (duplicateRequests.length > 10) {
+        prompt += `\n...and ${duplicateRequests.length - 10} more duplicate endpoints\n`;
+      }
+      prompt += '\n';
+    }
+
+    prompt += `## Questions for Analysis\n\n`;
+    prompt += `1. What is the root cause of each error?\n`;
+    prompt += `2. Which file and line number should I look at first?\n`;
+    prompt += `3. What is the recommended fix for each issue?\n`;
+    prompt += `4. Are there any patterns suggesting a deeper architectural problem?\n`;
+    prompt += `5. What preventive measures should I implement?\n\n`;
+
+    prompt += `## Additional Context\n\n`;
+    prompt += `- Total HTTP Requests: ${state.requests.length}\n`;
+    prompt += `- Total Console Logs: ${state.consoleLogs.length}\n`;
+    prompt += `- WebSocket Connections: ${state.websockets.length}\n\n`;
+
+    prompt += `Please analyze this data and provide actionable recommendations with specific file names and line numbers where possible.\n`;
+
+    return prompt;
   }
 
   // Generate Jira ticket content
@@ -859,7 +1136,46 @@
               jira += `*Detected Component/Service:* ${filenameMatch[1]}\n`;
             }
           }
+
+          // Extract Angular details from stack trace
           if (err.stack) {
+            const angularDetails = extractAngularDetailsFromStack(err.stack);
+
+            if (angularDetails.components.length > 0) {
+              jira += '\n*Angular Components Involved:*\n';
+              angularDetails.components.forEach(comp => {
+                jira += `* {{${comp.name}}} - File: {{${comp.file}:${comp.line || '?'}}} (Method: {{${comp.method}}})\n`;
+              });
+            }
+
+            if (angularDetails.services.length > 0) {
+              jira += '\n*Angular Services Involved:*\n';
+              angularDetails.services.forEach(svc => {
+                jira += `* {{${svc.name}}} - File: {{${svc.file}:${svc.line || '?'}}} (Method: {{${svc.method}}})\n`;
+              });
+            }
+
+            if (angularDetails.directives.length > 0) {
+              jira += '\n*Angular Directives Involved:*\n';
+              angularDetails.directives.forEach(dir => {
+                jira += `* {{${dir.name}}} - File: {{${dir.file}:${dir.line || '?'}}} (Method: {{${dir.method}}})\n`;
+              });
+            }
+
+            if (angularDetails.pipes.length > 0) {
+              jira += '\n*Angular Pipes Involved:*\n';
+              angularDetails.pipes.forEach(pipe => {
+                jira += `* {{${pipe.name}}} - File: {{${pipe.file}:${pipe.line || '?'}}} (Method: {{${pipe.method}}})\n`;
+              });
+            }
+
+            if (angularDetails.modules.length > 0) {
+              jira += '\n*Angular Modules Involved:*\n';
+              angularDetails.modules.forEach(mod => {
+                jira += `* {{${mod.name}}} - File: {{${mod.file}:${mod.line || '?'}}}\n`;
+              });
+            }
+
             jira += '\n*Full Stack Trace:*\n';
             jira += '{code:javascript}\n';
             jira += err.stack + '\n';
@@ -1685,6 +2001,13 @@
       originalConsole.log('  debugLogger.sendToBackend()         - Send logs to backend endpoint');
       originalConsole.log('  debugLogger.jira()                  - Generate and copy Jira ticket content');
       originalConsole.log('');
+      originalConsole.log('%cAI Analysis (NEW!):', 'font-weight: bold; color: #FF6B6B;');
+      originalConsole.log('  debugLogger.aiPrompt()              - Generate AI analysis prompt (GitHub Copilot, ChatGPT, Claude)');
+      originalConsole.log('  debugLogger.downloadAIPackage()     - Download complete package for AI analysis');
+      originalConsole.log('  debugLogger.showAngularInfo()       - Show Angular-specific debugging info');
+      originalConsole.log('  debugLogger.snapshot()              - Capture current DOM snapshot');
+      originalConsole.log('  debugLogger.exportWithAngular()     - Export with enhanced Angular details');
+      originalConsole.log('');
       originalConsole.log('%cFile Saving:', 'font-weight: bold');
       originalConsole.log('  debugLogger.selectDirectory()       - Select directory for file saving (Chrome/Edge)');
       originalConsole.log('  debugLogger.enableFileSaving()      - Enable auto-save to files');
@@ -1729,7 +2052,7 @@
     // Generate Jira ticket content
     jira: () => {
       const jiraContent = generateJiraTicket();
-      
+
       // Copy to clipboard
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(jiraContent).then(() => {
@@ -1756,8 +2079,161 @@
         originalConsole.log('='.repeat(80));
         alert('Jira content logged to console. Please copy it manually.');
       }
-      
+
       return jiraContent;
+    },
+
+    // Generate AI-friendly prompt for GitHub Copilot, ChatGPT, Claude, etc.
+    aiPrompt: () => {
+      const promptContent = generateAIPrompt();
+
+      // Copy to clipboard
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(promptContent).then(() => {
+          originalConsole.log('%c✅ AI analysis prompt copied to clipboard!', styles.success);
+          originalConsole.log('%c🤖 Paste this into GitHub Copilot, ChatGPT, or Claude for analysis', styles.info);
+          originalConsole.log('\n' + '='.repeat(80));
+          originalConsole.log(promptContent);
+          originalConsole.log('='.repeat(80));
+        }).catch(err => {
+          originalConsole.warn('Failed to copy to clipboard:', err);
+          // Fallback: show in console
+          originalConsole.log('\n' + '='.repeat(80));
+          originalConsole.log('AI ANALYSIS PROMPT (copy manually):');
+          originalConsole.log('='.repeat(80));
+          originalConsole.log(promptContent);
+          originalConsole.log('='.repeat(80));
+        });
+      } else {
+        // Fallback: show in console and prompt
+        originalConsole.log('\n' + '='.repeat(80));
+        originalConsole.log('AI ANALYSIS PROMPT:');
+        originalConsole.log('='.repeat(80));
+        originalConsole.log(promptContent);
+        originalConsole.log('='.repeat(80));
+        alert('AI prompt logged to console. Please copy it manually.');
+      }
+
+      return promptContent;
+    },
+
+    // Download AI-friendly package (prompt + full logs)
+    downloadAIPackage: () => {
+      const promptContent = generateAIPrompt();
+      const fullLogs = window.debugLogger.export();
+      const textLogs = generateTextLog();
+      const domSnapshot = captureDOMSnapshot();
+
+      const aiPackage = {
+        generatedAt: new Date().toISOString(),
+        sessionId: state.sessionId,
+        prompt: promptContent,
+        domSnapshot: domSnapshot,
+        fullData: fullLogs,
+        textLogs: textLogs,
+        instructions: {
+          usage: 'Copy the "prompt" field and paste it into your AI assistant (GitHub Copilot, ChatGPT, Claude, etc.)',
+          includeFiles: 'If the AI asks for specific files mentioned in errors, provide them from your codebase',
+          context: 'The "fullData" and "domSnapshot" fields provide additional context if needed'
+        }
+      };
+
+      const blob = new Blob([JSON.stringify(aiPackage, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ai-debug-package-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      originalConsole.log('%c✅ AI debug package downloaded!', styles.success);
+      originalConsole.log('%c📦 This package contains:', styles.info);
+      originalConsole.log('   - AI-ready prompt with all errors and context');
+      originalConsole.log('   - Complete debug logs in JSON format');
+      originalConsole.log('   - Text logs for easy reading');
+      originalConsole.log('   - DOM snapshot of current state');
+      originalConsole.log('\n%c💡 Quick Start:', styles.info);
+      originalConsole.log('   1. Open the downloaded JSON file');
+      originalConsole.log('   2. Copy the "prompt" field');
+      originalConsole.log('   3. Paste into GitHub Copilot, ChatGPT, or Claude');
+      originalConsole.log('   4. Follow the AI recommendations!');
+
+      return 'AI debug package downloaded successfully';
+    },
+
+    // Capture and show current DOM snapshot
+    snapshot: () => {
+      const snapshot = captureDOMSnapshot();
+      originalConsole.group('%c📸 DOM Snapshot', styles.header);
+      originalConsole.log(snapshot);
+      originalConsole.groupEnd();
+      return snapshot;
+    },
+
+    // Enhanced export with Angular details
+    exportWithAngular: () => {
+      const data = {
+        sessionId: state.sessionId,
+        requests: state.requests,
+        consoleLogs: state.consoleLogs,
+        websockets: state.websockets,
+        websocketMessages: state.websocketMessages,
+        requestCounts: state.requestCounts,
+        errors: state.errors,
+        currentPage: state.currentPage,
+        timestamp: new Date().toISOString(),
+        browserInfo: state.browserInfo,
+        domSnapshot: captureDOMSnapshot(),
+        angularVersion: document.querySelector('[ng-version]')?.getAttribute('ng-version'),
+        // Enhance errors with Angular details
+        enhancedErrors: state.errors.map(err => ({
+          ...err,
+          angularDetails: extractAngularDetailsFromStack(err.stack)
+        }))
+      };
+      originalConsole.log('Enhanced Export Data with Angular Details:', JSON.stringify(data, null, 2));
+      return data;
+    },
+
+    // Show Angular-specific info
+    showAngularInfo: () => {
+      originalConsole.group('%c⚛️ Angular Application Info', styles.header);
+
+      const ngVersion = document.querySelector('[ng-version]')?.getAttribute('ng-version');
+      const componentName = detectAngularComponent();
+
+      originalConsole.log('Angular Version:', ngVersion || 'Not detected');
+      originalConsole.log('Current Component:', componentName || 'Not detected');
+      originalConsole.log('Router Outlets:', document.querySelectorAll('router-outlet').length);
+      originalConsole.log('Angular Elements:', document.querySelectorAll('[ng-reflect-ng-if], [ng-reflect-ng-for-of]').length);
+
+      // Show components/services from errors
+      if (state.errors.length > 0) {
+        originalConsole.log('\n%cComponents/Services with Errors:', 'font-weight: bold; color: #f44336');
+
+        const allComponents = new Set();
+        const allServices = new Set();
+
+        state.errors.forEach(err => {
+          const details = extractAngularDetailsFromStack(err.stack);
+          details.components.forEach(comp => allComponents.add(`${comp.name} (${comp.file}:${comp.line})`));
+          details.services.forEach(svc => allServices.add(`${svc.name} (${svc.file}:${svc.line})`));
+        });
+
+        if (allComponents.size > 0) {
+          originalConsole.log('\nComponents:');
+          allComponents.forEach(comp => originalConsole.log('  -', comp));
+        }
+
+        if (allServices.size > 0) {
+          originalConsole.log('\nServices:');
+          allServices.forEach(svc => originalConsole.log('  -', svc));
+        }
+      }
+
+      originalConsole.groupEnd();
     }
   };
 
@@ -1860,6 +2336,24 @@
     content.appendChild(createBtn('💥 Errors', () => window.debugLogger.showErrors(), state.errors.length > 0 ? '#f44336' : '#2196F3'));
     content.appendChild(createBtn('📈 By Endpoint', () => window.debugLogger.showByEndpoint()));
     content.appendChild(createBtn('🔌 WebSockets', () => window.debugLogger.showWebSockets()));
+
+    // AI Analysis section
+    const aiSection = document.createElement('div');
+    aiSection.style.cssText = 'margin-top: 12px; padding-top: 12px; border-top: 1px solid #ddd;';
+    const aiTitle = document.createElement('div');
+    aiTitle.style.cssText = 'font-weight: bold; margin-bottom: 4px; color: #FF6B6B;';
+    aiTitle.textContent = '🤖 AI Analysis:';
+    aiSection.appendChild(aiTitle);
+    const aiPromptBtn = createBtn('🤖 Copy AI Prompt', function() {
+      window.debugLogger.aiPrompt();
+      const originalText = this.textContent;
+      this.textContent = '✅ Copied!';
+      setTimeout(() => this.textContent = originalText, 2000);
+    }, '#FF6B6B');
+    aiSection.appendChild(aiPromptBtn);
+    aiSection.appendChild(createBtn('📦 Download AI Package', () => window.debugLogger.downloadAIPackage(), '#FF6B6B'));
+    aiSection.appendChild(createBtn('⚛️ Angular Info', () => window.debugLogger.showAngularInfo(), '#DD0031'));
+    content.appendChild(aiSection);
 
     // Save section
     const saveSection = document.createElement('div');
@@ -1993,6 +2487,12 @@
   originalConsole.log('%c   • Type "dl" instead of "debugLogger" (shorter!)', styles.info);
   originalConsole.log('%c   • Keyboard shortcuts: Ctrl+Shift+D (UI), Ctrl+Shift+E (Errors), Ctrl+Shift+S (Summary)', styles.info);
   originalConsole.log('%c   • Type dl.help() for all commands', styles.info);
+  originalConsole.log('');
+  originalConsole.log('%c🤖 NEW AI Analysis Features:', 'color: #FF6B6B; font-weight: bold; font-size: 14px;');
+  originalConsole.log('%c   • dl.aiPrompt() - Generate AI-ready analysis prompt', 'color: #FF6B6B;');
+  originalConsole.log('%c   • dl.downloadAIPackage() - Download complete debug package for AI', 'color: #FF6B6B;');
+  originalConsole.log('%c   • dl.jira() - Create detailed JIRA tickets with component names & line numbers', 'color: #0052CC;');
+  originalConsole.log('%c   • dl.showAngularInfo() - View Angular components and errors', 'color: #DD0031;');
 
   // Show persistence status on start
   if (config.persistToLocalStorage) {

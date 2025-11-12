@@ -41,6 +41,7 @@
     saveToFiles: false,          // Set to true to auto-save logs to files
     fileSaveInterval: 30000,     // Auto-save files every 30 seconds (0 to disable)
     fileFormat: 'both',          // 'json', 'text', or 'both'
+    debugInitiators: false,      // Set to true to see raw stack traces and extraction details
   };
 
   // State tracking
@@ -878,6 +879,12 @@
   function extractAngularDetailsFromStack(stack) {
     if (!stack) return null;
 
+    if (config.debugInitiators) {
+      originalConsole.group('%c🔍 DEBUG: Stack Trace Analysis', 'color: #9C27B0; font-weight: bold;');
+      originalConsole.log('Raw Stack Trace:');
+      originalConsole.log(stack);
+    }
+
     const details = {
       components: [],
       services: [],
@@ -887,13 +894,17 @@
       files: []
     };
 
-    // Patterns for Angular artifacts
+    // Patterns for Angular artifacts (more flexible)
     const patterns = {
-      component: /([A-Z][a-zA-Z0-9_]*Component)\.?(?:\.([a-zA-Z0-9_]+))?\s*(?:\[as\s+[^\]]+\])?\s*\((?:.*?\/)?([^/:)]+\.(?:component|ts|js))(?::(\d+))?(?::(\d+))?\)/g,
-      service: /([A-Z][a-zA-Z0-9_]*Service)\.?(?:\.([a-zA-Z0-9_]+))?\s*(?:\[as\s+[^\]]+\])?\s*\((?:.*?\/)?([^/:)]+\.(?:service|ts|js))(?::(\d+))?(?::(\d+))?\)/g,
-      directive: /([A-Z][a-zA-Z0-9_]*Directive)\.?(?:\.([a-zA-Z0-9_]+))?\s*(?:\[as\s+[^\]]+\])?\s*\((?:.*?\/)?([^/:)]+\.(?:directive|ts|js))(?::(\d+))?(?::(\d+))?\)/g,
-      pipe: /([A-Z][a-zA-Z0-9_]*Pipe)\.?(?:\.([a-zA-Z0-9_]+))?\s*(?:\[as\s+[^\]]+\])?\s*\((?:.*?\/)?([^/:)]+\.(?:pipe|ts|js))(?::(\d+))?(?::(\d+))?\)/g,
-      module: /([A-Z][a-zA-Z0-9_]*Module)\.?(?:\.([a-zA-Z0-9_]+))?\s*(?:\[as\s+[^\]]+\])?\s*\((?:.*?\/)?([^/:)]+\.(?:module|ts|js))(?::(\d+))?(?::(\d+))?\)/g,
+      // Match: ComponentName.method (file.ts:line:col) OR ComponentName (file.ts:line:col)
+      component: /([A-Z][a-zA-Z0-9_]*Component)(?:\.([a-zA-Z0-9_]+))?\s*(?:\[as\s+[^\]]+\])?\s*\((?:.*?\/)?([^/:)]+\.(?:component|ts|js))(?::(\d+))?(?::(\d+))?\)/gi,
+      service: /([A-Z][a-zA-Z0-9_]*Service)(?:\.([a-zA-Z0-9_]+))?\s*(?:\[as\s+[^\]]+\])?\s*\((?:.*?\/)?([^/:)]+\.(?:service|ts|js))(?::(\d+))?(?::(\d+))?\)/gi,
+      directive: /([A-Z][a-zA-Z0-9_]*Directive)(?:\.([a-zA-Z0-9_]+))?\s*(?:\[as\s+[^\]]+\])?\s*\((?:.*?\/)?([^/:)]+\.(?:directive|ts|js))(?::(\d+))?(?::(\d+))?\)/gi,
+      pipe: /([A-Z][a-zA-Z0-9_]*Pipe)(?:\.([a-zA-Z0-9_]+))?\s*(?:\[as\s+[^\]]+\])?\s*\((?:.*?\/)?([^/:)]+\.(?:pipe|ts|js))(?::(\d+))?(?::(\d+))?\)/gi,
+      module: /([A-Z][a-zA-Z0-9_]*Module)(?:\.([a-zA-Z0-9_]+))?\s*(?:\[as\s+[^\]]+\])?\s*\((?:.*?\/)?([^/:)]+\.(?:module|ts|js))(?::(\d+))?(?::(\d+))?\)/gi,
+      // Generic: at ClassName.method (file.ts:line:col)
+      anyClass: /at\s+([A-Z][a-zA-Z0-9_]+)\.([a-zA-Z0-9_$]+)\s*\((?:.*?\/)?([^/:)]+\.(?:ts|js))(?::(\d+))?(?::(\d+))?\)/g,
+      // Generic file: at ... (file.ts:line:col)
       anyFile: /at\s+(?:.*?\s+)?\((?:.*?\/)?([^/:)]+\.(?:ts|js))(?::(\d+))?(?::(\d+))?\)/g
     };
 
@@ -957,6 +968,44 @@
       });
     }
 
+    // Extract generic classes (if no specific Angular patterns matched)
+    if (details.components.length === 0 && details.services.length === 0) {
+      patterns.anyClass.lastIndex = 0;
+      while ((match = patterns.anyClass.exec(stack)) !== null) {
+        const className = match[1];
+        const methodName = match[2];
+        const fileName = match[3];
+
+        // Add as component/service based on file name or class name
+        if (fileName.includes('component') || className.endsWith('Component')) {
+          details.components.push({
+            name: className,
+            method: methodName,
+            file: fileName,
+            line: match[4] ? parseInt(match[4]) : null,
+            column: match[5] ? parseInt(match[5]) : null
+          });
+        } else if (fileName.includes('service') || className.endsWith('Service')) {
+          details.services.push({
+            name: className,
+            method: methodName,
+            file: fileName,
+            line: match[4] ? parseInt(match[4]) : null,
+            column: match[5] ? parseInt(match[5]) : null
+          });
+        } else {
+          // Add as generic component if it looks like a class
+          details.components.push({
+            name: className,
+            method: methodName,
+            file: fileName,
+            line: match[4] ? parseInt(match[4]) : null,
+            column: match[5] ? parseInt(match[5]) : null
+          });
+        }
+      }
+    }
+
     // Extract all files mentioned
     patterns.anyFile.lastIndex = 0;
     while ((match = patterns.anyFile.exec(stack)) !== null) {
@@ -965,6 +1014,14 @@
         line: match[2] ? parseInt(match[2]) : null,
         column: match[3] ? parseInt(match[3]) : null
       });
+    }
+
+    if (config.debugInitiators) {
+      originalConsole.log('Extracted Details:');
+      originalConsole.log('Components:', details.components);
+      originalConsole.log('Services:', details.services);
+      originalConsole.log('Files:', details.files.slice(0, 5));
+      originalConsole.groupEnd();
     }
 
     return details;
@@ -2614,6 +2671,63 @@ Generated by Debug Logger Enhanced for Angular
         }
       }
 
+      originalConsole.groupEnd();
+    },
+
+    // Enable debug mode to see raw stack traces
+    enableDebugMode: () => {
+      config.debugInitiators = true;
+      originalConsole.log('%c✅ Debug mode ENABLED', styles.success);
+      originalConsole.log('%cNext request will show raw stack trace and extraction details', styles.info);
+      return 'Debug mode enabled - make a request to see details';
+    },
+
+    // Disable debug mode
+    disableDebugMode: () => {
+      config.debugInitiators = false;
+      originalConsole.log('%c❌ Debug mode DISABLED', styles.info);
+      return 'Debug mode disabled';
+    },
+
+    // Show last few requests with their initiator details
+    debugLastRequests: (count = 5) => {
+      originalConsole.group('%c🔍 DEBUG: Last ' + count + ' Requests', 'color: #9C27B0; font-weight: bold;');
+
+      const lastRequests = state.requests.slice(-count);
+
+      if (lastRequests.length === 0) {
+        originalConsole.log('No requests tracked yet');
+        originalConsole.groupEnd();
+        return;
+      }
+
+      lastRequests.forEach((req, idx) => {
+        originalConsole.group(`Request ${idx + 1}: ${req.method} ${req.url}`);
+        originalConsole.log('Status:', req.status);
+        originalConsole.log('Duration:', req.duration + 'ms');
+
+        if (req.initiator) {
+          originalConsole.log('Initiator Data:');
+          originalConsole.log('  Components:', req.initiator.components);
+          originalConsole.log('  Services:', req.initiator.services);
+          originalConsole.log('  Files:', req.initiator.files.slice(0, 3));
+        } else {
+          originalConsole.warn('No initiator data captured!');
+        }
+
+        if (req.callStack) {
+          originalConsole.log('Raw Call Stack:');
+          originalConsole.log(req.callStack);
+        } else {
+          originalConsole.warn('No call stack captured!');
+        }
+
+        originalConsole.groupEnd();
+      });
+
+      originalConsole.log('\n%c💡 TIP:', 'font-weight: bold;');
+      originalConsole.log('If you see "No initiator data", run: dl.enableDebugMode()');
+      originalConsole.log('Then make a request to see what stack traces look like');
       originalConsole.groupEnd();
     }
   };

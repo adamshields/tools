@@ -77,6 +77,29 @@
     lastFileSave: null,          // Timestamp of last file save
   };
 
+  // Save original console methods (must be defined early)
+  const originalConsole = {
+    log: console.log,
+    warn: console.warn,
+    error: console.error,
+    info: console.info,
+    group: console.group,
+    groupEnd: console.groupEnd,
+    table: console.table,
+  };
+
+  // Styles
+  const styles = {
+    success: 'color: #4CAF50; font-weight: bold;',
+    error: 'color: #f44336; font-weight: bold;',
+    warning: 'color: #ff9800; font-weight: bold;',
+    info: 'color: #2196F3; font-weight: bold;',
+    network: 'color: #9C27B0; font-weight: bold;',
+    slow: 'color: #ff5722; font-weight: bold; background: #fff3e0; padding: 2px 4px;',
+    duplicate: 'color: #ff9800; font-weight: bold; background: #fff8e1; padding: 2px 4px;',
+    header: 'background: #2196F3; color: white; padding: 3px 8px; border-radius: 3px;',
+  };
+
   // Load persisted logs from localStorage
   if (config.persistToLocalStorage) {
     try {
@@ -101,18 +124,6 @@
     }
   }
 
-  // Styles
-  const styles = {
-    success: 'color: #4CAF50; font-weight: bold;',
-    error: 'color: #f44336; font-weight: bold;',
-    warning: 'color: #ff9800; font-weight: bold;',
-    info: 'color: #2196F3; font-weight: bold;',
-    network: 'color: #9C27B0; font-weight: bold;',
-    slow: 'color: #ff5722; font-weight: bold; background: #fff3e0; padding: 2px 4px;',
-    duplicate: 'color: #ff9800; font-weight: bold; background: #fff8e1; padding: 2px 4px;',
-    header: 'background: #2196F3; color: white; padding: 3px 8px; border-radius: 3px;',
-  };
-
   // Filter out Angular/Zone noise (WebSocket removed - we want to track those!)
   const noisePatterns = [
     /zone\.js/i,
@@ -133,17 +144,6 @@
 
     return noisePatterns.some(pattern => pattern.test(str));
   }
-
-  // Override console methods
-  const originalConsole = {
-    log: console.log,
-    warn: console.warn,
-    error: console.error,
-    info: console.info,
-    group: console.group,
-    groupEnd: console.groupEnd,
-    table: console.table,
-  };
 
   // Helper to store console logs
   function storeLog(level, args) {

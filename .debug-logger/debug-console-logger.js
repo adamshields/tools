@@ -1030,19 +1030,80 @@
   // Capture DOM snapshot for context
   function captureDOMSnapshot() {
     try {
+      // Try to get all Angular component elements from the DOM
+      const angularComponentElements = [];
+      const allElements = document.querySelectorAll('*');
+
+      for (let el of allElements) {
+        const tagName = el.tagName.toLowerCase();
+        // Angular components usually have custom element names with hyphens
+        if (tagName.includes('-') && !tagName.startsWith('ng-')) {
+          angularComponentElements.push({
+            selector: tagName,
+            id: el.id || null,
+            classes: el.className || null,
+            attributes: Array.from(el.attributes)
+              .filter(attr => attr.name.startsWith('ng-') || attr.name.startsWith('_ng'))
+              .map(attr => ({ name: attr.name, value: attr.value.substring(0, 50) }))
+          });
+        }
+      }
+
+      // Try to extract current route component from router-outlet
+      let currentRouteComponent = null;
+      const routerOutlet = document.querySelector('router-outlet');
+      if (routerOutlet && routerOutlet.nextElementSibling) {
+        currentRouteComponent = routerOutlet.nextElementSibling.tagName.toLowerCase();
+      }
+
+      // Try to access Angular's internal state (if available in dev mode)
+      let angularDebugInfo = null;
+      try {
+        if (typeof ng !== 'undefined') {
+          const appRoot = document.querySelector('[ng-version]') || document.body;
+          if (ng.getComponent) {
+            const comp = ng.getComponent(appRoot);
+            if (comp && comp.constructor) {
+              angularDebugInfo = {
+                componentName: comp.constructor.name,
+                availableAPIs: Object.keys(ng).filter(k => typeof ng[k] === 'function')
+              };
+            }
+          }
+        }
+      } catch (e) {
+        // ng API might not be available
+      }
+
       const snapshot = {
         url: window.location.href,
+        pathname: window.location.pathname,
         title: document.title,
+
+        // Current route/component info
+        currentRouteComponent: currentRouteComponent,
+
+        // All Angular component elements found in DOM
+        angularComponentsInDOM: angularComponentElements.slice(0, 20), // Limit to first 20
+        totalAngularComponents: angularComponentElements.length,
+
+        // Angular debug info (if available)
+        angularDebugInfo: angularDebugInfo,
+
+        // Active element
         activeElement: document.activeElement ? {
           tagName: document.activeElement.tagName,
           id: document.activeElement.id,
           className: document.activeElement.className,
-          value: document.activeElement.value ? '[REDACTED]' : null
+          isInput: ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)
         } : null,
+
         bodyClasses: Array.from(document.body.classList),
         ngVersion: document.querySelector('[ng-version]')?.getAttribute('ng-version'),
+
         // Angular router state
         routerOutlets: Array.from(document.querySelectorAll('router-outlet')).length,
+
         // Forms state
         forms: Array.from(document.querySelectorAll('form')).map(form => ({
           id: form.id,
@@ -1051,17 +1112,27 @@
           method: form.method,
           fields: form.elements.length
         })),
+
         // Angular-specific elements
-        angularComponents: Array.from(document.querySelectorAll('[ng-reflect-ng-if], [ng-reflect-ng-for-of]')).length,
+        ngIfElements: document.querySelectorAll('[ng-reflect-ng-if]').length,
+        ngForElements: document.querySelectorAll('[ng-reflect-ng-for-of]').length,
+
         // Console errors visible
         consoleErrorCount: state.errors.length,
+
         // Viewport
         viewport: {
           width: window.innerWidth,
           height: window.innerHeight,
           scrollX: window.scrollX,
           scrollY: window.scrollY
-        }
+        },
+
+        // Recent user interactions (if we tracked them)
+        recentNotes: state.consoleLogs
+          .filter(log => log.level === 'NOTE')
+          .slice(-5)
+          .map(note => ({ timestamp: note.timestamp, message: note.message }))
       };
 
       return snapshot;
